@@ -27,11 +27,12 @@ async def main():
 
 
     agent = create_agent(
-        model="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+        # model="openrouter:qwen/qwen3-coder:free",
+        model="ollama:qwen3:4b",
         tools=tools,
         system_prompt="You are a helpful assistant",
     )
-
+    print("Invoking agent...")
     result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": "Can you tell me about emotions in interhuman"}]}
     )
