@@ -28,7 +28,8 @@ async def main():
 
     agent = create_agent(
         # model="openrouter:qwen/qwen3-coder:free",
-        model="ollama:qwen3:4b",
+        model="openrouter:cohere/north-mini-code:free",
+        # model="ollama:qwen3:4b",
         tools=tools,
         system_prompt="You are a helpful assistant",
     )
