@@ -23,6 +23,7 @@ async def main():
         )
 
     tools = await client.get_tools()
+    print ("Available tools:", tools)
 
 
     agent = create_agent(
