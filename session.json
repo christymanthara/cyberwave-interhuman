@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-06-20T15:18:44.221546+00:00",
+  "updated_at": "2026-06-20T15:22:18.914090+00:00",
   "sessions": {
     "session_manual_001": {
       "thread_id": "a0bf025d-4337-4f8c-ba31-9e4236ccce41",
@@ -7,6 +7,125 @@
       "updated_at": "2026-06-20T15:18:44.221468+00:00",
       "last_run_at": "2026-06-20T15:18:44.221468+00:00",
       "responses": []
+    },
+    "session_streaming_910028": {
+      "thread_id": "0daa8aa3-28fd-4084-824b-e2d52d189da2",
+      "created_at": "2026-06-20T15:21:54.213339+00:00",
+      "updated_at": "2026-06-20T15:21:55.809180+00:00",
+      "last_run_at": "2026-06-20T15:21:55.809189+00:00",
+      "responses": [
+        {
+          "timestamp": "2026-06-20T15:21:54.255848+00:00",
+          "source": "stream",
+          "payload": {
+            "timestamp": "2026-06-20T15:21:55.149561Z",
+            "correlation_id": "f1c41705-dcfe-4933-9b1b-a6eaa5bf79a1",
+            "type": "session.ready",
+            "data": {
+              "session_idle_timeout_seconds": 300,
+              "session_max_duration_seconds": 3600,
+              "max_segment_duration_seconds": null,
+              "min_segment_size_bytes": 1,
+              "max_segment_size_bytes": 33554432,
+              "supported_session_config_options": {
+                "include": [
+                  "conversation_quality_overall",
+                  "conversation_quality_timeline"
+                ],
+                "goal_dimensions": null
+              }
+            }
+          }
+        },
+        {
+          "timestamp": "2026-06-20T15:21:54.412998+00:00",
+          "source": "stream",
+          "payload": {
+            "timestamp": "2026-06-20T15:21:55.617839Z",
+            "correlation_id": "f1c41705-dcfe-4933-9b1b-a6eaa5bf79a1",
+            "type": "session.updated",
+            "data": {
+              "include": [
+                "conversation_quality_overall",
+                "conversation_quality_timeline"
+              ],
+              "goal_dimensions": null
+            }
+          }
+        },
+        {
+          "timestamp": "2026-06-20T15:21:55.809078+00:00",
+          "source": "stream",
+          "payload": {
+            "timestamp": "2026-06-20T15:21:55.717761Z",
+            "correlation_id": "f1c41705-dcfe-4933-9b1b-a6eaa5bf79a1",
+            "type": "session.updated",
+            "data": {
+              "include": [
+                "conversation_quality_overall",
+                "conversation_quality_timeline"
+              ],
+              "goal_dimensions": null
+            }
+          }
+        }
+      ]
+    },
+    "session_realtime_928836": {
+      "thread_id": "58118d3c-0255-4193-886a-d0c2c26d6797",
+      "created_at": "2026-06-20T15:22:10.886040+00:00",
+      "updated_at": "2026-06-20T15:22:18.914082+00:00",
+      "last_run_at": "2026-06-20T15:22:18.914086+00:00",
+      "responses": [
+        {
+          "timestamp": "2026-06-20T15:22:10.913915+00:00",
+          "source": "realtime",
+          "payload": {
+            "timestamp": "2026-06-20T15:22:11.893512Z",
+            "correlation_id": "55289da8-91c2-4a56-9c86-81989f8fcb3e",
+            "type": "session.ready",
+            "data": {
+              "session_idle_timeout_seconds": 300,
+              "session_max_duration_seconds": 3600,
+              "max_segment_duration_seconds": null,
+              "min_segment_size_bytes": 1,
+              "max_segment_size_bytes": 33554432,
+              "supported_session_config_options": {
+                "synthesis_prompt": "string",
+                "synthesis_frequency": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "timestamp": "2026-06-20T15:22:18.914064+00:00",
+          "source": "realtime",
+          "payload": {
+            "timestamp": "2026-06-20T15:22:19.974753Z",
+            "correlation_id": "4fb39599-2a51-4b88-a434-8c1f080f5d01",
+            "type": "session.ready",
+            "data": {
+              "session_idle_timeout_seconds": 300,
+              "session_max_duration_seconds": 3600,
+              "max_segment_duration_seconds": null,
+              "min_segment_size_bytes": 1,
+              "max_segment_size_bytes": 33554432,
+              "supported_session_config_options": {
+                "synthesis_prompt": "string",
+                "synthesis_frequency": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
