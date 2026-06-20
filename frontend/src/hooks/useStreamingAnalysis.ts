@@ -22,7 +22,8 @@ export function useStreamingAnalysis() {
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  const intervalRef = useRef<any>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const closedSignalsRef = useRef<NonNullable<InterhumanResponse["signals"]>>([]);
   const activeSignalsRef = useRef<Record<string, ActiveSignal>>({});
   const engagementRef = useRef<NonNullable<InterhumanResponse["engagement_state"]>>([]);
@@ -35,6 +36,25 @@ export function useStreamingAnalysis() {
     engagementRef.current = [];
     currentEngagementRef.current = null;
     conversationQualityRef.current = {};
+  };
+
+  const stopMediaCapture = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      recorder.onstop = null;
+      if (recorder.state !== "inactive") {
+        recorder.stop();
+      }
+      mediaRecorderRef.current = null;
+    }
+
+    const stream = mediaStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
   };
 
   const buildSnapshot = (cursorTime?: number): InterhumanResponse => {
@@ -155,16 +175,61 @@ export function useStreamingAnalysis() {
 
   const stopAnalysis = useCallback(() => {
     appLogger.info("streaming", "Stopping stream analysis session");
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
+    stopMediaCapture();
     if (socketRef.current) {
       socketRef.current.close();
     }
     clearLocalState();
     setActive(false);
   }, []);
+
+  const startMediaCapture = useCallback(async (ws: WebSocket) => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+      audio: false,
+    });
+
+    mediaStreamRef.current = stream;
+
+    const mimeCandidates = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+    ];
+
+    const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "video/webm";
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000 });
+    mediaRecorderRef.current = recorder;
+
+    recorder.onstart = () => {
+      appLogger.info("streaming", "MediaRecorder started", { mimeType });
+    };
+
+    recorder.ondataavailable = async (event) => {
+      if (!event.data || event.data.size === 0) return;
+      if (ws.readyState !== WebSocket.OPEN) {
+        appLogger.warn("streaming", "Dropping chunk because websocket is not open", { sizeBytes: event.data.size });
+        return;
+      }
+
+      const payload = await event.data.arrayBuffer();
+      ws.send(payload);
+      appLogger.debug("streaming", "Sent binary stream chunk", { sizeBytes: payload.byteLength });
+    };
+
+    recorder.onerror = (event) => {
+      appLogger.error("streaming", "MediaRecorder error", event);
+      setError("Media capture error during streaming");
+      stopAnalysis();
+    };
+
+    recorder.onstop = () => {
+      appLogger.info("streaming", "MediaRecorder stopped");
+    };
+
+    // Interhuman requires at least ~3 second segments.
+    recorder.start(3100);
+  }, [stopAnalysis]);
 
   const startAnalysis = useCallback((sessionId?: string) => {
     stopAnalysis();
@@ -183,20 +248,32 @@ export function useStreamingAnalysis() {
     const activeSessionId = sessionId || `session_stream_${Date.now()}`;
 
     ws.onopen = () => {
-      // Simulate continuous audio/video chunk submissions by sending a control packet every 3 seconds
+      // Keep legacy session_id packet for local mock compatibility.
       ws.send(JSON.stringify({ session_id: activeSessionId }));
+      // Configure CQI sections for Interhuman stream responses.
+      ws.send(
+        JSON.stringify({
+          include: ["conversation_quality_overall", "conversation_quality_timeline"],
+        })
+      );
       appLogger.info("streaming", "Websocket connected", { sessionId: activeSessionId });
 
-      intervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ session_id: activeSessionId }));
-          appLogger.debug("streaming", "Sent keepalive control packet", { sessionId: activeSessionId });
-        }
-      }, 3000);
+      startMediaCapture(ws).catch((captureError) => {
+        appLogger.error("streaming", "Unable to start media capture", captureError);
+        setError("Unable to access camera for streaming. Check browser camera permissions.");
+        stopAnalysis();
+      });
     };
 
     ws.onmessage = (event) => {
       try {
+        if (typeof event.data !== "string") {
+          appLogger.debug("streaming", "Ignoring non-text websocket message", {
+            dataType: typeof event.data,
+          });
+          return;
+        }
+
         const update = JSON.parse(event.data) as StreamUpdate;
         appLogger.debug("streaming", "Received websocket message", { type: update.type || "legacy" });
 
@@ -235,10 +312,11 @@ export function useStreamingAnalysis() {
     };
 
     ws.onclose = () => {
+      stopMediaCapture();
       appLogger.info("streaming", "Websocket closed");
       setActive(false);
     };
-  }, [stopAnalysis]);
+  }, [startMediaCapture, stopAnalysis]);
 
   return {
     data,

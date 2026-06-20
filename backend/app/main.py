@@ -215,11 +215,24 @@ async def stream_analyze(websocket: WebSocket) -> None:
             return
 
         logger.warning('WS /v1/stream/analyze running in mock mode (no INTERHUMAN_API_KEY)')
+        session_id: str | None = None
         while True:
-            message = await websocket.receive_text()
-            control: dict[str, Any] = json.loads(message)
-            session_id = control.get('session_id')
-            logger.debug('WS /v1/stream/analyze mock control_message session_id=%s', session_id)
+            message = await websocket.receive()
+            msg_type = message.get('type')
+            if msg_type == 'websocket.disconnect':
+                logger.info('WS /v1/stream/analyze mock client disconnected client=%s', websocket.client)
+                return
+
+            text_payload = message.get('text')
+            bytes_payload = message.get('bytes')
+
+            if text_payload is not None:
+                control: dict[str, Any] = json.loads(text_payload)
+                session_id = control.get('session_id', session_id)
+                logger.debug('WS /v1/stream/analyze mock control_message session_id=%s', session_id)
+            elif bytes_payload is not None:
+                logger.debug('WS /v1/stream/analyze mock received binary chunk size_bytes=%s', len(bytes_payload))
+
             for update in await service.stream_updates(session_id=session_id):
                 await websocket.send_json(update)
     except WebSocketDisconnect:
