@@ -17,7 +17,7 @@ async def main():
                     "transport": "http",  # HTTP-based remote server
                     # Ensure you start your weather server on port 8000
                     "url": "https://mcp.cyberwave.com/mcp",
-                    "headers": {"Authorization": "Bearer CYBERWAVE_API_KEY"},
+                    "headers": {"Authorization": f"Bearer {os.environ['CYBERWAVE_API_KEY']}"},
                 }
             }
         )
