@@ -1,7 +1,9 @@
 from langchain.agents import create_agent
 import asyncio
 from langchain_mcp_adapters.client import MultiServerMCPClient 
-
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
 
 async def main():
@@ -29,7 +31,7 @@ async def main():
         system_prompt="You are a helpful assistant",
     )
 
-    result = agent.invoke(
+    result = await agent.ainvoke(
         {"messages": [{"role": "user", "content": "What's the weather in San Francisco?"}]}
     )
     print(result["messages"][-1].content_blocks)
