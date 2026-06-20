@@ -23,16 +23,20 @@ async def main():
         )
 
     tools = await client.get_tools()
-    print ("Available tools:", tools)
+    # print ("Available tools:", tools)
 
 
     agent = create_agent(
-        model="openrouter:google/gemma-4-31b-it:free",
+        model="openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
         tools=tools,
         system_prompt="You are a helpful assistant",
     )
 
     result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": "What's the weather in San Francisco?"}]}
+        {"messages": [{"role": "user", "content": "Can you tell me about emotions in interhuman"}]}
     )
     print(result["messages"][-1].content_blocks)
+    print(result)
+    
+if __name__ == "__main__":
+    asyncio.run(main())
