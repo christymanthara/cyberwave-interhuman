@@ -1,0 +1,7 @@
+{
+  "name": "getting-started-with-interhuman",
+  "private": true,
+  "scripts": {
+    "start": "npx serve ."
+  }
+}

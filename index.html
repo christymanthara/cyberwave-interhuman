@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interhuman – Upload & Analyze</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1.5rem;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    h1 { font-size: 1.5rem; margin-top: 0; }
+    .section {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .section h2 { font-size: 1rem; margin: 0 0 0.75rem 0; color: #333; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+    input[type="file"] { margin-bottom: 0.75rem; }
+    button {
+      background: #0d6efd;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover { background: #0b5ed7; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    #response {
+      width: 100%;
+      min-height: 200px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.875rem;
+      padding: 0.75rem;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      background: #f8f9fa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      resize: vertical;
+      margin-top: 0.5rem;
+    }
+    #response:empty::before { content: 'Response will appear here…'; color: #6c757d; }
+    .status { color: #6c757d; font-size: 0.9rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Interhuman – Upload & Analyze</h1>
+
+  <div class="section">
+    <h2>Upload video</h2>
+    <label for="file">Choose a video file</label>
+    <input type="file" id="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,.mp4,.mov,.webm,.avi,.mkv" />
+    <br />
+    <button type="button" id="uploadBtn">Upload</button>
+    <p class="status" id="status" aria-live="polite"></p>
+  </div>
+
+  <div class="section">
+    <h2>Response</h2>
+    <pre id="response" role="log"></pre>
+  </div>
+
+  <script type="module">
+    import { runUpload } from './api.js';
+    const MAX_FILE_BYTES = 32 * 1024 * 1024;
+
+    const fileInput = document.getElementById('file');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const statusEl = document.getElementById('status');
+    const responseEl = document.getElementById('response');
+
+    fileInput.addEventListener('change', () => {
+      statusEl.textContent = '';
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) {
+        statusEl.textContent = 'Please select a video file first.';
+        return;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        const limitMB = MAX_FILE_BYTES / (1024 * 1024);
+        statusEl.textContent = `File is too large (${sizeMB} MB). Maximum allowed size is ${limitMB} MB.`;
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      statusEl.textContent = 'Authenticating…';
+      responseEl.textContent = '';
+      try {
+        statusEl.textContent = 'Analyzing…';
+        const body = await runUpload(file);
+        statusEl.textContent = 'Done.';
+        responseEl.textContent = JSON.stringify(body, null, 2);
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
