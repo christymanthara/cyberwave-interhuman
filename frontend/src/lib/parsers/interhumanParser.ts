@@ -87,6 +87,27 @@ export function parseInterhumanResponse(data: any): InterhumanResponse {
   const engagement_state: RawEngagement[] = [];
   let conversation_quality: ConversationQuality | QualityTimelinePoint[] = {};
 
+  const normalizeQualityTimeline = (timeline: any[]): QualityTimelinePoint[] => {
+    const qualityTimeline: QualityTimelinePoint[] = [];
+    timeline.forEach((q: any) => {
+      if (q && typeof q === "object" && typeof q.start === "number" && typeof q.end === "number") {
+        qualityTimeline.push({
+          start: q.start,
+          end: q.end,
+          values: {
+            quality_index: typeof q.quality_index === "number" ? q.quality_index : q.values?.quality_index,
+            clarity: typeof q.clarity === "number" ? q.clarity : q.values?.clarity,
+            authority: typeof q.authority === "number" ? q.authority : q.values?.authority,
+            energy: typeof q.energy === "number" ? q.energy : q.values?.energy,
+            rapport: typeof q.rapport === "number" ? q.rapport : q.values?.rapport,
+            learning: typeof q.learning === "number" ? q.learning : q.values?.learning,
+          },
+        });
+      }
+    });
+    return qualityTimeline;
+  };
+
   if (data && typeof data === "object") {
     // Parse signals safely
     if (Array.isArray(data.signals)) {
@@ -119,33 +140,25 @@ export function parseInterhumanResponse(data: any): InterhumanResponse {
     // Parse conversation quality safely
     if (data.conversation_quality) {
       if (Array.isArray(data.conversation_quality)) {
-        const qualityTimeline: QualityTimelinePoint[] = [];
-        data.conversation_quality.forEach((q: any) => {
-          if (q && typeof q === "object" && typeof q.start === "number" && typeof q.end === "number") {
-            qualityTimeline.push({
-              start: q.start,
-              end: q.end,
-              values: {
-                quality_index: typeof q.quality_index === "number" ? q.quality_index : q.values?.quality_index,
-                clarity: typeof q.clarity === "number" ? q.clarity : q.values?.clarity,
-                authority: typeof q.authority === "number" ? q.authority : q.values?.authority,
-                energy: typeof q.energy === "number" ? q.energy : q.values?.energy,
-                rapport: typeof q.rapport === "number" ? q.rapport : q.values?.rapport,
-                learning: typeof q.learning === "number" ? q.learning : q.values?.learning,
-              },
-            });
-          }
-        });
-        conversation_quality = qualityTimeline;
+        conversation_quality = normalizeQualityTimeline(data.conversation_quality);
       } else if (typeof data.conversation_quality === "object") {
-        conversation_quality = {
-          quality_index: data.conversation_quality.quality_index,
-          clarity: data.conversation_quality.clarity,
-          authority: data.conversation_quality.authority,
-          energy: data.conversation_quality.energy,
-          rapport: data.conversation_quality.rapport,
-          learning: data.conversation_quality.learning,
-        };
+        // Interhuman may return either flat metrics or nested { overall, timeline }
+        const maybeOverall = data.conversation_quality.overall;
+        const maybeTimeline = data.conversation_quality.timeline;
+
+        if (Array.isArray(maybeTimeline) && maybeTimeline.length > 0) {
+          conversation_quality = normalizeQualityTimeline(maybeTimeline);
+        } else {
+          const source = maybeOverall && typeof maybeOverall === "object" ? maybeOverall : data.conversation_quality;
+          conversation_quality = {
+            quality_index: source.quality_index,
+            clarity: source.clarity,
+            authority: source.authority,
+            energy: source.energy,
+            rapport: source.rapport,
+            learning: source.learning,
+          };
+        }
       }
     }
   }

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import logging
 import json
 import os
 from typing import Annotated, Any
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .sample_data import SAMPLE_ANALYSIS
 from .schemas import InterhumanError
 from .service import InterhumanService
 
@@ -17,6 +18,12 @@ from .service import InterhumanService
 from backend.agent.agent import chat as agent_chat, stream_chat as agent_stream_chat
 
 app = FastAPI(title='Interhuman Local API', version='0.1.0')
+
+logging.basicConfig(
+    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,9 +79,11 @@ async def chat_endpoint(body: ChatRequest) -> ChatResponse:
         {"role": m.role, "content": m.content}
         for m in (body.history or [])
     ]
+    logger.info('POST /v1/chat message_length=%s history_size=%s', len(body.message or ''), len(history))
     try:
         reply = await agent_chat(body.message, history or None)
     except Exception as exc:
+        logger.exception('Chat agent error')
         raise HTTPException(status_code=502, detail=f"Agent error: {exc}") from exc
     return ChatResponse(reply=reply)
 
@@ -93,6 +102,7 @@ async def chat_stream_endpoint(body: ChatRequest) -> StreamingResponse:
         {"role": m.role, "content": m.content}
         for m in (body.history or [])
     ]
+    logger.info('POST /v1/chat/stream message_length=%s history_size=%s', len(body.message or ''), len(history))
 
     async def event_generator():
         try:
@@ -121,12 +131,19 @@ async def upload_analyze(
 ) -> JSONResponse:
     del include
     file_bytes = await file.read()
+    logger.info(
+        'POST /v1/upload/analyze filename=%s size_bytes=%s content_type=%s',
+        file.filename,
+        len(file_bytes),
+        file.content_type,
+    )
     if not file_bytes:
         raise HTTPException(status_code=400, detail='Uploaded file is empty.')
 
     try:
         payload = await service.upload_and_analyze(file_bytes, file.filename, file.content_type)
     except httpx.HTTPStatusError as exc:  # type: ignore[name-defined]
+        logger.warning('Upload analyze upstream HTTP error status=%s', exc.response.status_code)
         response = exc.response
         try:
             error_payload = response.json()
@@ -139,6 +156,7 @@ async def upload_analyze(
             }
         return JSONResponse(status_code=response.status_code, content=error_payload)
     except Exception as exc:  # pragma: no cover - defensive adapter
+        logger.exception('Upload analyze backend adapter error')
         return JSONResponse(
             status_code=502,
             content=InterhumanError(
@@ -155,15 +173,25 @@ async def upload_analyze(
 @app.websocket('/v0/real-time/analyze')
 async def realtime_analyze(websocket: WebSocket) -> None:
     await websocket.accept()
+    logger.info('WS /v0/real-time/analyze connected client=%s', websocket.client)
     try:
         message = await websocket.receive_text()
         control: dict[str, Any] = json.loads(message)
         session_id = control.get('session_id')
-        for update in await service.stream_updates(session_id=session_id):
-            await websocket.send_json(update)
+        logger.warning('Realtime endpoint is not implemented; returning explicit error session_id=%s', session_id)
+        await websocket.send_json(
+            InterhumanError(
+                error_id='ih-realtime-not-implemented',
+                correlation_id='local',
+                link='https://docs.interhuman.ai/api-reference/stream-analyze',
+                message='Realtime backend endpoint is not implemented. Use /v1/stream/analyze.',
+            ).model_dump()
+        )
     except WebSocketDisconnect:
+        logger.info('WS /v0/real-time/analyze disconnected client=%s', websocket.client)
         return
     except Exception as exc:
+        logger.exception('Realtime websocket error')
         await websocket.send_json(
             InterhumanError(
                 error_id='ih-realtime-error',
@@ -179,16 +207,26 @@ async def realtime_analyze(websocket: WebSocket) -> None:
 @app.websocket('/v1/stream/analyze')
 async def stream_analyze(websocket: WebSocket) -> None:
     await websocket.accept()
+    logger.info('WS /v1/stream/analyze connected client=%s', websocket.client)
     try:
+        if service.api_key:
+            logger.info('WS /v1/stream/analyze running in live relay mode')
+            await service.relay_stream_session(websocket)
+            return
+
+        logger.warning('WS /v1/stream/analyze running in mock mode (no INTERHUMAN_API_KEY)')
         while True:
             message = await websocket.receive_text()
             control: dict[str, Any] = json.loads(message)
             session_id = control.get('session_id')
+            logger.debug('WS /v1/stream/analyze mock control_message session_id=%s', session_id)
             for update in await service.stream_updates(session_id=session_id):
                 await websocket.send_json(update)
     except WebSocketDisconnect:
+        logger.info('WS /v1/stream/analyze disconnected client=%s', websocket.client)
         return
     except Exception as exc:
+        logger.exception('Stream websocket error')
         await websocket.send_json(
             InterhumanError(
                 error_id='ih-stream-error',

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { parseInterhumanResponse, InterhumanResponse } from "../lib/parsers/interhumanParser";
+import { appLogger } from "../lib/logger";
 
 export function useUploadAnalysis() {
   const [loading, setLoading] = useState(false);
@@ -9,6 +10,11 @@ export function useUploadAnalysis() {
   const analyzeFile = async (file: File) => {
     setLoading(true);
     setError(null);
+    appLogger.info("upload", "Starting upload analysis", {
+      fileName: file.name,
+      sizeBytes: file.size,
+      type: file.type,
+    });
 
     const formData = new FormData();
     formData.append("file", file);
@@ -27,9 +33,11 @@ export function useUploadAnalysis() {
       const rawData = await response.json();
       const parsed = parseInterhumanResponse(rawData);
       setData(parsed);
+      appLogger.info("upload", "Upload analysis completed successfully");
     } catch (err: any) {
       setError(err.message || "Failed to analyze file");
       setData(null);
+      appLogger.error("upload", "Upload analysis failed", err);
     } finally {
       setLoading(false);
     }
