@@ -165,6 +165,8 @@ export function useRealtimeAnalysis() {
     mediaStreamRef.current = stream;
 
     const mimeCandidates = [
+      "video/mp4",
+      "video/mp4;codecs=avc1",
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
       "video/webm",
@@ -200,7 +202,7 @@ export function useRealtimeAnalysis() {
       appLogger.info("realtime", "MediaRecorder stopped");
     };
 
-    recorder.start(3100);
+    recorder.start(5000);
   }, [stopAnalysis]);
 
   const startAnalysis = useCallback((sessionId?: string, selectedCameraId?: string) => {

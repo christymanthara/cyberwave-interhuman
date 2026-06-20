@@ -194,6 +194,8 @@ export function useStreamingAnalysis() {
     mediaStreamRef.current = stream;
 
     const mimeCandidates = [
+      "video/mp4",
+      "video/mp4;codecs=avc1",
       "video/webm;codecs=vp9",
       "video/webm;codecs=vp8",
       "video/webm",
@@ -230,7 +232,7 @@ export function useStreamingAnalysis() {
     };
 
     // Interhuman requires at least ~3 second segments.
-    recorder.start(3100);
+    recorder.start(5000);
   }, [stopAnalysis]);
 
   const startAnalysis = useCallback((sessionId?: string, selectedCameraId?: string) => {

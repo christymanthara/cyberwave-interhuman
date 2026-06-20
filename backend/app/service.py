@@ -4,6 +4,9 @@ import asyncio
 import json
 import logging
 import mimetypes
+import shutil
+import subprocess
+import tempfile
 from typing import Any
 from uuid import uuid4
 
@@ -148,8 +151,13 @@ class InterhumanService:
                         continue
 
                     if bytes_payload is not None:
-                        await upstream.send(bytes_payload)
-                        logger.debug('Forwarded binary frame size_bytes=%s', len(bytes_payload))
+                        prepared_segment = await self._prepare_video_segment(bytes_payload)
+                        if prepared_segment is None:
+                            logger.warning('Dropping malformed stream segment before upstream relay size_bytes=%s', len(bytes_payload))
+                            continue
+
+                        await upstream.send(prepared_segment)
+                        logger.debug('Forwarded binary frame size_bytes=%s', len(prepared_segment))
 
             async def upstream_to_client() -> None:
                 while True:
@@ -239,8 +247,13 @@ class InterhumanService:
                         continue
 
                     if bytes_payload is not None:
-                        await upstream.send(bytes_payload)
-                        logger.debug('Forwarded realtime binary frame size_bytes=%s', len(bytes_payload))
+                        prepared_segment = await self._prepare_video_segment(bytes_payload)
+                        if prepared_segment is None:
+                            logger.warning('Dropping malformed realtime segment before upstream relay size_bytes=%s', len(bytes_payload))
+                            continue
+
+                        await upstream.send(prepared_segment)
+                        logger.debug('Forwarded realtime binary frame size_bytes=%s', len(prepared_segment))
 
             async def upstream_to_client() -> None:
                 while True:
@@ -273,3 +286,65 @@ class InterhumanService:
                     raise exc
 
         logger.info('Upstream realtime relay closed')
+
+    async def _prepare_video_segment(self, payload: bytes) -> bytes | None:
+        if len(payload) == 0:
+            return None
+
+        looks_like_mp4 = len(payload) >= 8 and payload[4:8] == b'ftyp'
+        if not looks_like_mp4:
+            logger.debug('Stream segment is not mp4-like; forwarding without faststart validation')
+            return payload
+
+        ffmpeg_path = shutil.which('ffmpeg')
+        if not ffmpeg_path:
+            logger.warning('ffmpeg is not installed on PATH; sending segment without re-encode/faststart verification')
+            return payload
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = f'{temp_dir}/input.bin'
+            output_path = f'{temp_dir}/output.mp4'
+
+            with open(input_path, 'wb') as input_file:
+                input_file.write(payload)
+
+            command = [
+                ffmpeg_path,
+                '-hide_banner',
+                '-loglevel', 'error',
+                '-y',
+                '-i',
+                input_path,
+                '-map',
+                '0',
+                '-c',
+                'copy',
+                '-movflags',
+                '+faststart',
+                output_path,
+            ]
+
+            try:
+                result = subprocess.run(command, capture_output=True, check=False, text=True)
+            except OSError as exc:
+                logger.warning('ffmpeg execution failed, forwarding original segment instead: %s', exc)
+                return payload
+
+            if result.returncode != 0:
+                stderr = (result.stderr or '').strip()
+                logger.warning('ffmpeg rejected stream segment as malformed/truncated: %s', stderr)
+                return None
+
+            try:
+                with open(output_path, 'rb') as output_file:
+                    encoded = output_file.read()
+            except OSError as exc:
+                logger.warning('Unable to read ffmpeg output, forwarding original segment instead: %s', exc)
+                return payload
+
+            if len(encoded) == 0:
+                logger.warning('ffmpeg produced empty output for a stream segment')
+                return None
+
+            logger.debug('Validated and faststarted stream segment input_bytes=%s output_bytes=%s', len(payload), len(encoded))
+            return encoded
