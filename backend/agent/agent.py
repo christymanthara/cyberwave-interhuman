@@ -24,7 +24,7 @@ async def main():
 
 
     agent = create_agent(
-        model="openrouter:anthropic/claude-sonnet-4-6",
+        model="openrouter:google/gemma-4-31b-it:free",
         tools=tools,
         system_prompt="You are a helpful assistant",
     )
