@@ -5,12 +5,47 @@ import { Camera, CameraOff, Video } from "lucide-react";
 
 interface LiveVideoPreviewProps {
   isActive: boolean;
+  selectedCameraId?: string;
+  onCameraSelect?: (deviceId: string) => void;
 }
 
-export function LiveVideoPreview({ isActive }: LiveVideoPreviewProps) {
+export function LiveVideoPreview({ isActive, selectedCameraId, onCameraSelect }: LiveVideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadDevices() {
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        if (!mounted) return;
+        const cams = all.filter((d) => d.kind === "videoinput");
+        setDevices(cams);
+
+        if (cams.length > 0 && !selectedCameraId && onCameraSelect) {
+          onCameraSelect(cams[0].deviceId);
+        }
+      } catch {
+        // No-op: device list may be unavailable before permission grant.
+      }
+    }
+
+    loadDevices();
+
+    const handleDeviceChange = () => {
+      loadDevices();
+    };
+
+    navigator.mediaDevices?.addEventListener?.("devicechange", handleDeviceChange);
+
+    return () => {
+      mounted = false;
+      navigator.mediaDevices?.removeEventListener?.("devicechange", handleDeviceChange);
+    };
+  }, [onCameraSelect, selectedCameraId]);
 
   useEffect(() => {
     let activeStream: MediaStream | null = null;
@@ -22,10 +57,25 @@ export function LiveVideoPreview({ isActive }: LiveVideoPreviewProps) {
       }
       try {
         setError(null);
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 360 } },
+        const constraints: MediaStreamConstraints = {
+          video: selectedCameraId
+            ? { deviceId: { exact: selectedCameraId }, width: { ideal: 640 }, height: { ideal: 360 } }
+            : { facingMode: "user", width: { ideal: 640 }, height: { ideal: 360 } },
           audio: false,
+        };
+
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          ...constraints,
         });
+
+        const all = await navigator.mediaDevices.enumerateDevices();
+        const cams = all.filter((d) => d.kind === "videoinput");
+        setDevices(cams);
+
+        if (!selectedCameraId && cams.length > 0 && onCameraSelect) {
+          onCameraSelect(cams[0].deviceId);
+        }
+
         activeStream = mediaStream;
         setStream(mediaStream);
         if (videoRef.current) {
@@ -44,7 +94,7 @@ export function LiveVideoPreview({ isActive }: LiveVideoPreviewProps) {
         activeStream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [isActive]);
+  }, [isActive, onCameraSelect, selectedCameraId]);
 
   const stopCamera = () => {
     if (stream) {
@@ -95,8 +145,23 @@ export function LiveVideoPreview({ isActive }: LiveVideoPreviewProps) {
       <div className="mt-2 flex items-center justify-between px-2 pb-1">
         <span className="flex items-center gap-1 text-[10px] font-medium text-zinc-400">
           <Video className="h-3 w-3" />
-          Default Camera Selection
+          Camera Source
         </span>
+
+        {devices.length > 1 && (
+          <select
+            value={selectedCameraId || ""}
+            onChange={(e) => onCameraSelect?.(e.target.value)}
+            disabled={isActive}
+            className="max-w-[180px] truncate rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] text-zinc-200 outline-none focus:border-zinc-400 disabled:opacity-60"
+          >
+            {devices.map((device, idx) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Camera ${idx + 1}`}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
     </div>
   );

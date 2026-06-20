@@ -20,6 +20,7 @@ export default function Home() {
   const [activeMode, setActiveMode] = useState<AnalysisMode>("upload");
   const [sessionId, setSessionId] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const [qualityHistory, setQualityHistory] = useState<QualityTimelinePoint[]>([]);
 
   // Generate unique session IDs when toggling modes
@@ -183,7 +184,7 @@ export default function Home() {
     if (activeMode === "realtime") {
       startRealtime(sessionId);
     } else if (activeMode === "streaming") {
-      startStreaming(sessionId);
+      startStreaming(sessionId, selectedCameraId || undefined);
     }
   };
 
@@ -324,7 +325,11 @@ export default function Home() {
 
             {/* Camera feed preview for realtime / streaming mode */}
             {activeMode !== "upload" && (
-              <LiveVideoPreview isActive={isRunning} />
+              <LiveVideoPreview
+                isActive={isRunning}
+                selectedCameraId={selectedCameraId}
+                onCameraSelect={setSelectedCameraId}
+              />
             )}
 
             {/* AI Agent Chat Copilot Sidepanel */}

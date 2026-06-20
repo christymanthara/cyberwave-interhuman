@@ -183,9 +183,11 @@ export function useStreamingAnalysis() {
     setActive(false);
   }, []);
 
-  const startMediaCapture = useCallback(async (ws: WebSocket) => {
+  const startMediaCapture = useCallback(async (ws: WebSocket, selectedCameraId?: string) => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+      video: selectedCameraId
+        ? { deviceId: { exact: selectedCameraId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
       audio: false,
     });
 
@@ -231,7 +233,7 @@ export function useStreamingAnalysis() {
     recorder.start(3100);
   }, [stopAnalysis]);
 
-  const startAnalysis = useCallback((sessionId?: string) => {
+  const startAnalysis = useCallback((sessionId?: string, selectedCameraId?: string) => {
     stopAnalysis();
 
     setActive(true);
@@ -241,6 +243,7 @@ export function useStreamingAnalysis() {
     appLogger.info("streaming", "Opening websocket", {
       endpoint: "ws://localhost:8000/v1/stream/analyze",
       sessionId,
+      selectedCameraId,
     });
 
     const ws = new WebSocket("ws://localhost:8000/v1/stream/analyze");
@@ -258,7 +261,7 @@ export function useStreamingAnalysis() {
       );
       appLogger.info("streaming", "Websocket connected", { sessionId: activeSessionId });
 
-      startMediaCapture(ws).catch((captureError) => {
+      startMediaCapture(ws, selectedCameraId).catch((captureError) => {
         appLogger.error("streaming", "Unable to start media capture", captureError);
         setError("Unable to access camera for streaming. Check browser camera permissions.");
         stopAnalysis();
