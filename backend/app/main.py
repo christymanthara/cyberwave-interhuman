@@ -6,11 +6,15 @@ from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 from .sample_data import SAMPLE_ANALYSIS
 from .schemas import InterhumanError
 from .service import InterhumanService
+
+# Agent helpers (agent.py is kept untouched as a standalone script)
+from agent.agent import chat as agent_chat, stream_chat as agent_stream_chat
 
 app = FastAPI(title='Interhuman Local API', version='0.1.0')
 
@@ -25,9 +29,89 @@ app.add_middleware(
 service = InterhumanService(os.getenv('INTERHUMAN_API_KEY'))
 
 
+# ---------------------------------------------------------------------------
+# Chat request/response schemas
+# ---------------------------------------------------------------------------
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] | None = None  # optional prior turns
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+# ---------------------------------------------------------------------------
+# Healthcheck
+# ---------------------------------------------------------------------------
+
 @app.get('/healthz')
 async def healthz() -> dict[str, str]:
     return {'status': 'ok'}
+
+
+# ---------------------------------------------------------------------------
+# Agent chat endpoints
+# ---------------------------------------------------------------------------
+
+@app.post('/v1/chat', response_model=ChatResponse, tags=['chat'])
+async def chat_endpoint(body: ChatRequest) -> ChatResponse:
+    """
+    Send a message to the AI agent and receive a full reply.
+
+    - **message**: The user's text input.
+    - **history**: Optional list of prior {role, content} turns for multi-turn context.
+    """
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in (body.history or [])
+    ]
+    try:
+        reply = await agent_chat(body.message, history or None)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Agent error: {exc}") from exc
+    return ChatResponse(reply=reply)
+
+
+@app.post('/v1/chat/stream', tags=['chat'])
+async def chat_stream_endpoint(body: ChatRequest) -> StreamingResponse:
+    """
+    Stream the agent's reply token-by-token as **Server-Sent Events**.
+
+    Each event looks like:  `data: <text chunk>\\n\\n`
+    The stream ends with:   `data: [DONE]\\n\\n`
+
+    Connect from the frontend with the `EventSource` API or `fetch` + ReadableStream.
+    """
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in (body.history or [])
+    ]
+
+    async def event_generator():
+        try:
+            async for chunk in agent_stream_chat(body.message, history or None):
+                # SSE format: each line must start with "data: "
+                yield f"data: {chunk}\n\n"
+        except Exception as exc:
+            yield f"data: [ERROR] {exc}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable nginx buffering
+        },
+    )
 
 
 @app.post('/v1/upload/analyze')
