@@ -175,18 +175,32 @@ async def realtime_analyze(websocket: WebSocket) -> None:
     await websocket.accept()
     logger.info('WS /v0/real-time/analyze connected client=%s', websocket.client)
     try:
-        message = await websocket.receive_text()
-        control: dict[str, Any] = json.loads(message)
-        session_id = control.get('session_id')
-        logger.warning('Realtime endpoint is not implemented; returning explicit error session_id=%s', session_id)
-        await websocket.send_json(
-            InterhumanError(
-                error_id='ih-realtime-not-implemented',
-                correlation_id='local',
-                link='https://docs.interhuman.ai/api-reference/stream-analyze',
-                message='Realtime backend endpoint is not implemented. Use /v1/stream/analyze.',
-            ).model_dump()
-        )
+        if service.api_key:
+            logger.info('WS /v0/real-time/analyze running in live relay mode')
+            await service.relay_realtime_session(websocket)
+            return
+
+        logger.warning('WS /v0/real-time/analyze running in mock mode (no INTERHUMAN_API_KEY)')
+        session_id: str | None = None
+        while True:
+            message = await websocket.receive()
+            msg_type = message.get('type')
+            if msg_type == 'websocket.disconnect':
+                logger.info('WS /v0/real-time/analyze mock client disconnected client=%s', websocket.client)
+                return
+
+            text_payload = message.get('text')
+            bytes_payload = message.get('bytes')
+
+            if text_payload is not None:
+                control: dict[str, Any] = json.loads(text_payload)
+                session_id = control.get('session_id', session_id)
+                logger.debug('WS /v0/real-time/analyze mock control_message session_id=%s', session_id)
+            elif bytes_payload is not None:
+                logger.debug('WS /v0/real-time/analyze mock received binary chunk size_bytes=%s', len(bytes_payload))
+
+            for update in await service.stream_updates(session_id=session_id):
+                await websocket.send_json(update)
     except WebSocketDisconnect:
         logger.info('WS /v0/real-time/analyze disconnected client=%s', websocket.client)
         return

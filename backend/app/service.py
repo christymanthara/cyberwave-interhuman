@@ -182,3 +182,94 @@ class InterhumanService:
                     raise exc
 
         logger.info('Upstream stream relay closed')
+
+    async def relay_realtime_session(self, client_socket: WebSocket) -> None:
+        if not self.api_key:
+            raise RuntimeError('INTERHUMAN_API_KEY is not configured; cannot start upstream realtime relay.')
+
+        realtime_ws_url = API_BASE.replace('https://', 'wss://') + REALTIME_ENDPOINT
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+        }
+
+        logger.info('Opening upstream realtime relay url=%s', realtime_ws_url)
+        async with ws_connect(
+            realtime_ws_url,
+            additional_headers=headers,
+            max_size=None,
+        ) as upstream:
+            logger.info('Upstream realtime relay connected')
+
+            async def client_to_upstream() -> None:
+                while True:
+                    message = await client_socket.receive()
+                    msg_type = message.get('type')
+
+                    if msg_type == 'websocket.disconnect':
+                        logger.info('Client disconnected from local realtime relay')
+                        break
+
+                    text_payload = message.get('text')
+                    bytes_payload = message.get('bytes')
+
+                    if text_payload is not None:
+                        try:
+                            control = json.loads(text_payload)
+                        except json.JSONDecodeError:
+                            control = None
+
+                        # Compatibility shim: ignore the local session-id packet, but forward valid realtime config/transcript frames.
+                        if isinstance(control, dict):
+                            if 'session_id' in control and len(control) == 1:
+                                logger.debug('Ignoring local realtime session_id control packet')
+                                continue
+
+                            if control.get('type') in {'transcript.updated', 'realtime_session_config_v1', 'session.updated'}:
+                                await upstream.send(text_payload)
+                                logger.debug('Forwarded realtime config/transcript frame type=%s', control.get('type'))
+                                continue
+
+                            if 'synthesis_frequency' in control or 'synthesis_prompt' in control:
+                                await upstream.send(text_payload)
+                                logger.debug('Forwarded realtime session config keys=%s', list(control.keys()))
+                                continue
+
+                        await upstream.send(text_payload)
+                        logger.debug('Forwarded realtime text frame from client to upstream')
+                        continue
+
+                    if bytes_payload is not None:
+                        await upstream.send(bytes_payload)
+                        logger.debug('Forwarded realtime binary frame size_bytes=%s', len(bytes_payload))
+
+            async def upstream_to_client() -> None:
+                while True:
+                    frame = await upstream.recv()
+                    if isinstance(frame, bytes):
+                        await client_socket.send_bytes(frame)
+                        logger.debug('Relayed realtime binary frame from upstream size_bytes=%s', len(frame))
+                    else:
+                        await client_socket.send_text(frame)
+                        try:
+                            envelope = json.loads(frame)
+                            logger.debug('Relayed realtime upstream envelope type=%s', envelope.get('type'))
+                        except json.JSONDecodeError:
+                            logger.debug('Relayed realtime upstream text frame (non-json)')
+
+            sender_task = asyncio.create_task(client_to_upstream())
+            receiver_task = asyncio.create_task(upstream_to_client())
+
+            done, pending = await asyncio.wait(
+                {sender_task, receiver_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for task in pending:
+                task.cancel()
+
+            for task in done:
+                exc = task.exception()
+                if exc:
+                    raise exc
+
+        logger.info('Upstream realtime relay closed')
