@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from .schemas import InterhumanError
 from .service import InterhumanService
+from .session_store import SessionStore
 
 # Agent helpers (agent.py is kept untouched as a standalone script)
 from backend.agent.agent import chat as agent_chat, stream_chat as agent_stream_chat
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 service = InterhumanService(os.getenv('INTERHUMAN_API_KEY'))
+session_store = SessionStore()
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +49,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: str | None = None
     history: list[ChatMessage] | None = None  # optional prior turns
 
 
@@ -79,7 +82,33 @@ async def chat_endpoint(body: ChatRequest) -> ChatResponse:
         {"role": m.role, "content": m.content}
         for m in (body.history or [])
     ]
-    logger.info('POST /v1/chat message_length=%s history_size=%s', len(body.message or ''), len(history))
+    logger.info(
+        'POST /v1/chat message_length=%s history_size=%s session_id=%s',
+        len(body.message or ''),
+        len(history),
+        body.session_id,
+    )
+
+    if not body.session_id:
+        raise HTTPException(status_code=400, detail='session_id is required for chat context.')
+
+    existing = session_store.get_session(body.session_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail='Invalid session_id. Run an analysis session first.')
+
+    context = session_store.build_context(body.session_id)
+    if context:
+        history = [
+            {
+                'role': 'system',
+                'content': (
+                    'Use this Interhuman session context to answer the user. '
+                    'Prefer citing recent detected signals, engagement, and quality updates.\n\n'
+                    + context
+                ),
+            }
+        ] + history
+
     try:
         reply = await agent_chat(body.message, history or None)
     except Exception as exc:
@@ -102,7 +131,32 @@ async def chat_stream_endpoint(body: ChatRequest) -> StreamingResponse:
         {"role": m.role, "content": m.content}
         for m in (body.history or [])
     ]
-    logger.info('POST /v1/chat/stream message_length=%s history_size=%s', len(body.message or ''), len(history))
+    logger.info(
+        'POST /v1/chat/stream message_length=%s history_size=%s session_id=%s',
+        len(body.message or ''),
+        len(history),
+        body.session_id,
+    )
+
+    if not body.session_id:
+        raise HTTPException(status_code=400, detail='session_id is required for chat context.')
+
+    existing = session_store.get_session(body.session_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail='Invalid session_id. Run an analysis session first.')
+
+    context = session_store.build_context(body.session_id)
+    if context:
+        history = [
+            {
+                'role': 'system',
+                'content': (
+                    'Use this Interhuman session context to answer the user. '
+                    'Prefer citing recent detected signals, engagement, and quality updates.\n\n'
+                    + context
+                ),
+            }
+        ] + history
 
     async def event_generator():
         try:
@@ -128,14 +182,18 @@ async def chat_stream_endpoint(body: ChatRequest) -> StreamingResponse:
 async def upload_analyze(
     file: Annotated[UploadFile, File(...)],
     include: Annotated[list[str] | None, Form(alias='include[]')] = None,
+    session_id: Annotated[str | None, Form()] = None,
 ) -> JSONResponse:
     del include
+    resolved_session_id = session_id or f'upload_{os.urandom(4).hex()}'
+    session_store.ensure_session(resolved_session_id)
     file_bytes = await file.read()
     logger.info(
-        'POST /v1/upload/analyze filename=%s size_bytes=%s content_type=%s',
+        'POST /v1/upload/analyze filename=%s size_bytes=%s content_type=%s session_id=%s',
         file.filename,
         len(file_bytes),
         file.content_type,
+        resolved_session_id,
     )
     if not file_bytes:
         raise HTTPException(status_code=400, detail='Uploaded file is empty.')
@@ -167,6 +225,11 @@ async def upload_analyze(
             ).model_dump(),
         )
 
+    session_store.append_response(resolved_session_id, 'upload', payload)
+    payload['_session'] = {
+        'session_id': resolved_session_id,
+        'thread_id': session_store.get_session(resolved_session_id).get('thread_id'),
+    }
     return JSONResponse(content=payload)
 
 
@@ -177,7 +240,15 @@ async def realtime_analyze(websocket: WebSocket) -> None:
     try:
         if service.api_key:
             logger.info('WS /v0/real-time/analyze running in live relay mode')
-            await service.relay_realtime_session(websocket)
+            await service.relay_realtime_session(
+                websocket,
+                lambda sid, envelope: session_store.append_response(
+                    sid,
+                    'realtime',
+                    envelope,
+                ) if sid else None,
+                lambda sid: session_store.ensure_session(sid),
+            )
             return
 
         logger.warning('WS /v0/real-time/analyze running in mock mode (no INTERHUMAN_API_KEY)')
@@ -195,11 +266,15 @@ async def realtime_analyze(websocket: WebSocket) -> None:
             if text_payload is not None:
                 control: dict[str, Any] = json.loads(text_payload)
                 session_id = control.get('session_id', session_id)
+                if session_id:
+                    session_store.ensure_session(session_id)
                 logger.debug('WS /v0/real-time/analyze mock control_message session_id=%s', session_id)
             elif bytes_payload is not None:
                 logger.debug('WS /v0/real-time/analyze mock received binary chunk size_bytes=%s', len(bytes_payload))
 
             for update in await service.stream_updates(session_id=session_id):
+                if session_id:
+                    session_store.append_response(session_id, 'realtime-mock', update)
                 await websocket.send_json(update)
     except WebSocketDisconnect:
         logger.info('WS /v0/real-time/analyze disconnected client=%s', websocket.client)
@@ -225,7 +300,15 @@ async def stream_analyze(websocket: WebSocket) -> None:
     try:
         if service.api_key:
             logger.info('WS /v1/stream/analyze running in live relay mode')
-            await service.relay_stream_session(websocket)
+            await service.relay_stream_session(
+                websocket,
+                lambda sid, envelope: session_store.append_response(
+                    sid,
+                    'stream',
+                    envelope,
+                ) if sid else None,
+                lambda sid: session_store.ensure_session(sid),
+            )
             return
 
         logger.warning('WS /v1/stream/analyze running in mock mode (no INTERHUMAN_API_KEY)')
@@ -243,11 +326,15 @@ async def stream_analyze(websocket: WebSocket) -> None:
             if text_payload is not None:
                 control: dict[str, Any] = json.loads(text_payload)
                 session_id = control.get('session_id', session_id)
+                if session_id:
+                    session_store.ensure_session(session_id)
                 logger.debug('WS /v1/stream/analyze mock control_message session_id=%s', session_id)
             elif bytes_payload is not None:
                 logger.debug('WS /v1/stream/analyze mock received binary chunk size_bytes=%s', len(bytes_payload))
 
             for update in await service.stream_updates(session_id=session_id):
+                if session_id:
+                    session_store.append_response(session_id, 'stream-mock', update)
                 await websocket.send_json(update)
     except WebSocketDisconnect:
         logger.info('WS /v1/stream/analyze disconnected client=%s', websocket.client)

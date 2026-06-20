@@ -7,7 +7,7 @@ export function useUploadAnalysis() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<InterhumanResponse | null>(null);
 
-  const analyzeFile = async (file: File) => {
+  const analyzeFile = async (file: File, sessionId?: string) => {
     setLoading(true);
     setError(null);
     appLogger.info("upload", "Starting upload analysis", {
@@ -18,6 +18,9 @@ export function useUploadAnalysis() {
 
     const formData = new FormData();
     formData.append("file", file);
+    if (sessionId) {
+      formData.append("session_id", sessionId);
+    }
 
     try {
       const response = await fetch("http://localhost:8000/v1/upload/analyze", {

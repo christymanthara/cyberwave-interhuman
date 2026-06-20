@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, MessageSquare, Bot, User, Sparkles, Loader2 } from "lucide-react";
+import { Send, Bot, User, Sparkles, Loader2 } from "lucide-react";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -61,6 +61,7 @@ export function AgentChat({ sessionId }: AgentChatProps) {
         },
         body: JSON.stringify({
           message: textToSend,
+          session_id: sessionId,
           history: chatHistory,
         }),
       });
@@ -77,13 +78,14 @@ export function AgentChat({ sessionId }: AgentChatProps) {
           content: data.reply || "No reply received.",
         },
       ]);
-    } catch (error: any) {
-      console.error("Chat error:", error);
+    } catch (error: unknown) {
+      console.error("Chat error:", error); 
+      const err = error as { message?: string };
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: `Sorry, I encountered an error: ${error.message || "Unknown error"}. Make sure the backend server is running.`,
+          content: `Sorry, I encountered an error: ${err.message || "Unknown error"}. Make sure the backend server is running.`,
         },
       ]);
     } finally {

@@ -176,7 +176,7 @@ export default function Home() {
 
   const handleUploadSubmit = () => {
     if (selectedFile) {
-      analyzeFile(selectedFile);
+      analyzeFile(selectedFile, sessionId);
     }
   };
 

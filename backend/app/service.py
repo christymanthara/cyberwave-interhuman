@@ -7,7 +7,7 @@ import mimetypes
 import shutil
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 import httpx
@@ -84,7 +84,12 @@ class InterhumanService:
         logger.debug('Generated mock stream updates session_id=%s update_count=%s', session_id, len(updates))
         return updates
 
-    async def relay_stream_session(self, client_socket: WebSocket) -> None:
+    async def relay_stream_session(
+        self,
+        client_socket: WebSocket,
+        on_envelope: Callable[[str | None, dict[str, Any]], None] | None = None,
+        on_session: Callable[[str], None] | None = None,
+    ) -> None:
         if not self.api_key:
             raise RuntimeError('INTERHUMAN_API_KEY is not configured; cannot start upstream stream relay.')
 
@@ -100,9 +105,10 @@ class InterhumanService:
         ) as upstream:
             logger.info('Upstream stream relay connected')
             session_config_sent = False
+            current_session_id: str | None = None
 
             async def client_to_upstream() -> None:
-                nonlocal session_config_sent
+                nonlocal session_config_sent, current_session_id
                 while True:
                     message = await client_socket.receive()
                     msg_type = message.get('type')
@@ -131,6 +137,12 @@ class InterhumanService:
                                 continue
 
                             if 'session_id' in control and not session_config_sent:
+                                sid = control.get('session_id')
+                                if isinstance(sid, str) and sid:
+                                    current_session_id = sid
+                                    if on_session:
+                                        on_session(sid)
+
                                 default_config = {
                                     'include': [
                                         'conversation_quality_overall',
@@ -143,6 +155,11 @@ class InterhumanService:
                                 continue
 
                             if 'session_id' in control and session_config_sent:
+                                sid = control.get('session_id')
+                                if isinstance(sid, str) and sid:
+                                    current_session_id = sid
+                                    if on_session:
+                                        on_session(sid)
                                 logger.debug('Ignoring local keepalive session_id control after initial config')
                                 continue
 
@@ -169,6 +186,8 @@ class InterhumanService:
                         await client_socket.send_text(frame)
                         try:
                             envelope = json.loads(frame)
+                            if on_envelope and isinstance(envelope, dict):
+                                on_envelope(current_session_id, envelope)
                             logger.debug('Relayed upstream envelope type=%s', envelope.get('type'))
                         except json.JSONDecodeError:
                             logger.debug('Relayed upstream text frame (non-json)')
@@ -191,7 +210,12 @@ class InterhumanService:
 
         logger.info('Upstream stream relay closed')
 
-    async def relay_realtime_session(self, client_socket: WebSocket) -> None:
+    async def relay_realtime_session(
+        self,
+        client_socket: WebSocket,
+        on_envelope: Callable[[str | None, dict[str, Any]], None] | None = None,
+        on_session: Callable[[str], None] | None = None,
+    ) -> None:
         if not self.api_key:
             raise RuntimeError('INTERHUMAN_API_KEY is not configured; cannot start upstream realtime relay.')
 
@@ -207,8 +231,10 @@ class InterhumanService:
             max_size=None,
         ) as upstream:
             logger.info('Upstream realtime relay connected')
+            current_session_id: str | None = None
 
             async def client_to_upstream() -> None:
+                nonlocal current_session_id
                 while True:
                     message = await client_socket.receive()
                     msg_type = message.get('type')
@@ -229,6 +255,11 @@ class InterhumanService:
                         # Compatibility shim: ignore the local session-id packet, but forward valid realtime config/transcript frames.
                         if isinstance(control, dict):
                             if 'session_id' in control and len(control) == 1:
+                                sid = control.get('session_id')
+                                if isinstance(sid, str) and sid:
+                                    current_session_id = sid
+                                    if on_session:
+                                        on_session(sid)
                                 logger.debug('Ignoring local realtime session_id control packet')
                                 continue
 
@@ -265,6 +296,8 @@ class InterhumanService:
                         await client_socket.send_text(frame)
                         try:
                             envelope = json.loads(frame)
+                            if on_envelope and isinstance(envelope, dict):
+                                on_envelope(current_session_id, envelope)
                             logger.debug('Relayed realtime upstream envelope type=%s', envelope.get('type'))
                         except json.JSONDecodeError:
                             logger.debug('Relayed realtime upstream text frame (non-json)')
