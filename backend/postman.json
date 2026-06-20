@@ -3,7 +3,63 @@
         "name": "Cyberwave Agent API",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8000"
+        },
+        {
+            "key": "session_id",
+            "value": "session_manual_001"
+        }
+    ],
     "item": [
+        {
+            "name": "Upload Analyze (Bootstrap Session)",
+            "request": {
+                "method": "POST",
+                "body": {
+                    "mode": "formdata",
+                    "formdata": [
+                        {
+                            "key": "file",
+                            "type": "file",
+                            "src": ""
+                        },
+                        {
+                            "key": "session_id",
+                            "value": "{{session_id}}",
+                            "type": "text"
+                        }
+                    ]
+                },
+                "url": {
+                    "raw": "{{base_url}}/v1/upload/analyze",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "v1",
+                        "upload",
+                        "analyze"
+                    ]
+                }
+            },
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "const body = pm.response.json();",
+                            "if (body && body._session && body._session.session_id) {",
+                            "  pm.collectionVariables.set('session_id', body._session.session_id);",
+                            "}"
+                        ]
+                    }
+                }
+            ]
+        },
         {
             "name": "Chat - Full Reply",
             "request": {
@@ -16,7 +72,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n  \"message\": \"Can you tell me about emotions in Interhuman?\",\n  \"history\": []\n}",
+                    "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"message\": \"Can you tell me about emotions in Interhuman?\",\n  \"history\": []\n}",
                     "options": {
                         "raw": {
                             "language": "json"
@@ -24,12 +80,10 @@
                     }
                 },
                 "url": {
-                    "raw": "http://localhost:8000/v1/chat",
-                    "protocol": "http",
+                    "raw": "{{base_url}}/v1/chat",
                     "host": [
-                        "localhost"
+                        "{{base_url}}"
                     ],
-                    "port": "8000",
                     "path": [
                         "v1",
                         "chat"
@@ -53,7 +107,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n  \"message\": \"Tell me about the Cyberwave platform\",\n  \"history\": []\n}",
+                    "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"message\": \"Tell me about the Cyberwave platform\",\n  \"history\": []\n}",
                     "options": {
                         "raw": {
                             "language": "json"
@@ -61,12 +115,10 @@
                     }
                 },
                 "url": {
-                    "raw": "http://localhost:8000/v1/chat/stream",
-                    "protocol": "http",
+                    "raw": "{{base_url}}/v1/chat/stream",
                     "host": [
-                        "localhost"
+                        "{{base_url}}"
                     ],
-                    "port": "8000",
                     "path": [
                         "v1",
                         "chat",
@@ -80,12 +132,10 @@
             "request": {
                 "method": "GET",
                 "url": {
-                    "raw": "http://localhost:8000/healthz",
-                    "protocol": "http",
+                    "raw": "{{base_url}}/healthz",
                     "host": [
-                        "localhost"
+                        "{{base_url}}"
                     ],
-                    "port": "8000",
                     "path": [
                         "healthz"
                     ]
