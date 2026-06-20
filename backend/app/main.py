@@ -14,7 +14,7 @@ from .schemas import InterhumanError
 from .service import InterhumanService
 
 # Agent helpers (agent.py is kept untouched as a standalone script)
-from agent.agent import chat as agent_chat, stream_chat as agent_stream_chat
+from backend.agent.agent import chat as agent_chat, stream_chat as agent_stream_chat
 
 app = FastAPI(title='Interhuman Local API', version='0.1.0')
 

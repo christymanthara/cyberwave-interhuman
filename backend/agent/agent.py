@@ -42,6 +42,7 @@ async def get_agent():
         # model="ollama:qwen3:4b",
         tools=tools,
         system_prompt="You are a helpful assistant",
+        name="agent"
     )
     return agent
 
